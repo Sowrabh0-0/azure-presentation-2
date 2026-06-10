@@ -1,0 +1,1076 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Opslora Azure and Terraform Architecture Decisions</title>
+  <style>
+    :root {
+      --bg: #061614;
+      --panel: rgba(7, 30, 26, 0.78);
+      --panel-2: rgba(13, 47, 40, 0.72);
+      --ink: #f3ead2;
+      --muted: #b7ad93;
+      --subtle: #81775f;
+      --line: rgba(243, 234, 210, 0.20);
+      --accent: #d9c38a;
+      --accent-2: #7d9f72;
+      --warn: #d9a441;
+      --good: #8fbf87;
+      --bad: #d88772;
+      --topbar: 58px;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+      font-family: "Inter", "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: linear-gradient(rgba(243, 234, 210, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(243, 234, 210, 0.030) 1px, transparent 1px),
+        radial-gradient(circle at 20% 12%, rgba(125, 159, 114, 0.18), transparent 32%),
+        radial-gradient(circle at 84% 16%, rgba(217, 195, 138, 0.09), transparent 32%),
+        var(--bg);
+      background-size: 82px 82px, 82px 82px, auto, auto, auto;
+      color: var(--ink);
+    }
+
+    body {
+      overflow: hidden;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      background: linear-gradient(rgba(243, 234, 210, 0.022) 50%, rgba(0, 0, 0, 0.02) 50%);
+      background-size: 100% 4px;
+      mix-blend-mode: soft-light;
+      opacity: 0.24;
+    }
+
+    .top-telemetry {
+      position: fixed;
+      left: 22px;
+      right: 22px;
+      top: 18px;
+      z-index: 8;
+      min-height: 50px;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      background: rgba(3, 22, 19, 0.78);
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 9px 14px;
+      backdrop-filter: blur(18px);
+    }
+
+    .brand-wordmark {
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      font-size: 15px;
+      white-space: nowrap;
+    }
+
+    .telemetry-left,
+    .telemetry-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .telemetry-chip {
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 0;
+      color: var(--muted);
+      padding: 7px 11px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: rgba(243, 234, 210, 0.035);
+    }
+
+    .telemetry-chip strong {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .deck {
+      height: 100vh;
+      width: 100vw;
+      position: relative;
+      z-index: 4;
+    }
+
+    .slide {
+      display: none;
+      height: 100vh;
+      width: 100vw;
+      padding: 102px 72px 58px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide.active {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 26px;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 82px 28px 28px;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      pointer-events: none;
+      background: linear-gradient(135deg, rgba(217, 195, 138, 0.06), transparent 26%),
+        linear-gradient(315deg, rgba(125, 159, 114, 0.06), transparent 28%);
+      box-shadow: inset 0 0 80px rgba(217, 195, 138, 0.025);
+    }
+
+    .slide::after {
+      content: "OPSLORA AZURE / DECISION MODE";
+      position: absolute;
+      right: 44px;
+      bottom: 38px;
+      z-index: 0;
+      color: rgba(148, 163, 184, 0.13);
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      pointer-events: none;
+    }
+
+    header,
+    main,
+    footer {
+      position: relative;
+      z-index: 1;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 0;
+      background: var(--accent);
+      box-shadow: 0 0 18px rgba(217, 195, 138, 0.45);
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      letter-spacing: 0;
+      line-height: 1.04;
+    }
+
+    h1 {
+      max-width: 980px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(42px, 6vw, 82px);
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      max-width: 980px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(34px, 4.8vw, 60px);
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      max-width: 900px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: 24px;
+      line-height: 1.38;
+    }
+
+    .tag {
+      border: 1px solid var(--line);
+      color: var(--muted);
+      border-radius: 0;
+      padding: 9px 13px;
+      font-size: 13px;
+      white-space: nowrap;
+      background: rgba(243, 234, 210, 0.035);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      box-shadow: inset 0 0 22px rgba(217, 195, 138, 0.025);
+    }
+
+    main {
+      min-height: 0;
+      align-content: center;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--subtle);
+      font-size: 13px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, rgba(8, 35, 30, 0.82), rgba(4, 20, 18, 0.74));
+      border: 1px solid var(--line);
+      border-radius: 0;
+      padding: 24px;
+      box-shadow: var(--shadow);
+      min-height: 148px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), rgba(125, 159, 114, 0.1));
+      opacity: 0.85;
+    }
+
+    .card.compact {
+      min-height: 0;
+      padding: 18px;
+    }
+
+    .card h3 {
+      margin: 0 0 12px;
+      font-size: 24px;
+      line-height: 1.12;
+      font-family: Georgia, "Times New Roman", serif;
+      text-transform: uppercase;
+    }
+
+    .card p,
+    .card li {
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.42;
+    }
+
+    .card p {
+      margin: 0;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 22px;
+    }
+
+    li + li {
+      margin-top: 10px;
+    }
+
+    .kpi {
+      display: grid;
+      gap: 8px;
+    }
+
+    .kpi strong {
+      color: var(--ink);
+      font-size: 32px;
+      line-height: 1;
+    }
+
+    .kpi span {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.35;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 0;
+      padding: 8px 12px;
+      color: var(--muted);
+      background: rgba(243, 234, 210, 0.035);
+      font-size: 15px;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      align-items: center;
+    }
+
+    .node {
+      border: 1px solid var(--line);
+      border-radius: 0;
+      padding: 18px;
+      min-height: 118px;
+      background: rgba(5, 25, 22, 0.82);
+    }
+
+    .node b {
+      display: block;
+      font-size: 19px;
+      margin-bottom: 8px;
+    }
+
+    .node span {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    .arrow {
+      color: var(--accent);
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 0;
+      border: 1px solid var(--line);
+      background: rgba(5, 25, 22, 0.82);
+      box-shadow: var(--shadow);
+    }
+
+    .table th,
+    .table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 16px;
+      vertical-align: top;
+    }
+
+    .table th {
+      color: var(--ink);
+      background: rgba(243, 234, 210, 0.055);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .table td {
+      color: var(--muted);
+    }
+
+    .table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code {
+      font-family: "Cascadia Code", Consolas, monospace;
+      color: var(--ink);
+      background: rgba(217, 195, 138, 0.10);
+      border: 1px solid rgba(217, 195, 138, 0.28);
+      border-radius: 0;
+      padding: 2px 6px;
+      font-size: 0.92em;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      background: rgba(3, 22, 19, 0.74);
+      border: 1px solid rgba(217, 195, 138, 0.18);
+      border-radius: 0;
+      padding: 18px;
+    }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: 1fr;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .architecture img {
+      width: 100%;
+      height: min(68vh, 720px);
+      object-fit: contain;
+      background: rgba(241, 235, 218, 0.96);
+      border-radius: 0;
+      border: 1px solid rgba(217, 195, 138, 0.42);
+      padding: 10px;
+      box-shadow: var(--shadow);
+    }
+
+    .accent {
+      color: var(--accent);
+    }
+
+    .blue {
+      color: var(--accent-2);
+    }
+
+    .good {
+      color: var(--good);
+    }
+
+    .warn {
+      color: var(--warn);
+    }
+
+    .bad {
+      color: var(--bad);
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .quote {
+      font-size: 34px;
+      line-height: 1.18;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .small {
+      font-size: 14px;
+      color: var(--subtle);
+    }
+
+    .nav {
+      position: fixed;
+      right: 26px;
+      bottom: 22px;
+      z-index: 12;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      background: rgba(3, 22, 19, 0.86);
+      border: 1px solid var(--line);
+      border-radius: 0;
+      padding: 8px 10px;
+      backdrop-filter: blur(10px);
+    }
+
+    .nav button {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink);
+      border-radius: 0;
+      padding: 7px 11px;
+      cursor: pointer;
+    }
+
+    .progress {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      height: 4px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.08);
+      z-index: 13;
+    }
+
+    .progress > div {
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--good));
+      transition: width 180ms ease;
+    }
+
+    @media (max-width: 900px) {
+      body {
+        overflow: auto;
+      }
+
+      .top-telemetry {
+        display: none;
+      }
+
+      .slide,
+      .slide.active {
+        min-height: 100vh;
+        height: auto;
+        padding: 30px 24px 84px;
+      }
+
+      .slide::before {
+        inset: 14px;
+      }
+
+      .grid-2,
+      .grid-3,
+      .grid-4,
+      .split,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow {
+        display: none;
+      }
+    }
+
+    @media print {
+      body {
+        overflow: visible;
+        background: #07111f;
+      }
+
+      .deck {
+        height: auto;
+      }
+
+      .slide,
+      .slide.active {
+        display: grid;
+        height: 100vh;
+        page-break-after: always;
+        padding: 42px 56px 48px;
+      }
+
+      .slide::before {
+        inset: 18px;
+      }
+
+      .nav,
+      .progress,
+      .top-telemetry {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="top-telemetry" aria-label="Presentation navigation">
+    <div class="telemetry-left">
+      <span class="brand-wordmark">Opslora Azure</span>
+      <span class="telemetry-chip"><strong>Open Plan</strong></span>
+    </div>
+    <div class="telemetry-right">
+      <span class="telemetry-chip">Hub</span>
+      <span class="telemetry-chip">Test</span>
+      <span class="telemetry-chip">Prod</span>
+      <span class="telemetry-chip">Terraform</span>
+    </div>
+  </div>
+
+  <div class="deck">
+    <section class="slide active">
+      <header>
+        <div>
+          <div class="eyebrow">Opslora Platform</div>
+          <h1>Azure And Terraform Architecture Decisions</h1>
+          <p class="subtitle">A 15-slide walkthrough of how the hub-spoke plan, Terraform structure, networking, and platform decisions were made.</p>
+        </div>
+        <div class="tag">Central India + South India DR</div>
+      </header>
+      <main>
+        <div class="grid-4">
+          <div class="card kpi"><strong>3</strong><span>Subscriptions: hub, test, prod</span></div>
+          <div class="card kpi"><strong>4</strong><span>Terraform state lanes: hub, test, prod, prod-dr</span></div>
+          <div class="card kpi"><strong>AKS</strong><span>Azure CNI Overlay with managed Azure features</span></div>
+          <div class="card kpi"><strong>AGIC</strong><span>Application Gateway WAF as the ingress edge</span></div>
+        </div>
+      </main>
+      <footer><span>Azure rollout decision deck</span><span>1 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Starting Point</div>
+          <h2>What I Was Planning For</h2>
+        </div>
+        <div class="tag">Problem framing</div>
+      </header>
+      <main class="grid-2">
+        <div class="card">
+          <h3>Business need</h3>
+          <ul>
+            <li>Move Opslora to an Azure-native platform without losing the existing GitHub/GHCR workflow.</li>
+            <li>Support test first, production later, and DR when the platform is mature enough.</li>
+            <li>Keep room for on-prem Hermes AI connectivity from Trivandrum.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Engineering need</h3>
+          <ul>
+            <li>Clear blast-radius boundaries.</li>
+            <li>Private networking for secrets and data.</li>
+            <li>Terraform that can be reviewed without guessing the active environment.</li>
+            <li>Cost-aware SKUs and phased rollout.</li>
+          </ul>
+        </div>
+      </main>
+      <footer><span>Goal: secure, explainable, Azure-focused rollout</span><span>2 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Architecture View</div>
+          <h2>Hub-Spoke Was Chosen As The Control Plane</h2>
+        </div>
+        <div class="tag">Excalidraw reference</div>
+      </header>
+      <main class="architecture">
+        <img src="d__opslora_opslora_azure-presentation-2_draw-25.excalidraw.svg" alt="Opslora Azure architecture drawing" />
+      </main>
+      <footer><span>Hub centralizes shared network services; spokes isolate test/prod workloads</span><span>3 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Subscription Decision</div>
+          <h2>Why I Split Into Hub, Test, And Prod</h2>
+        </div>
+        <div class="tag">Boundary decision</div>
+      </header>
+      <main>
+        <table class="table">
+          <thead>
+            <tr><th>Subscription</th><th>Owns</th><th>Reason</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>opslora-connectivity</code></td><td>Hub network, firewall, VPN, Bastion, DNS, tfstate</td><td>Stable shared foundation with limited operators</td></tr>
+            <tr><td><code>opslora-test</code></td><td>Test AKS, WAF, MySQL, Key Vault, monitoring</td><td>Fast validation without production blast radius</td></tr>
+            <tr><td><code>opslora-prod</code></td><td>Prod AKS, prod data/security, future prod-dr</td><td>Stricter RBAC, policy, budgets, and release control</td></tr>
+          </tbody>
+        </table>
+        <div class="pill-row">
+          <span class="pill">Cleaner billing</span>
+          <span class="pill">Separate RBAC</span>
+          <span class="pill">Policy by scope</span>
+          <span class="pill">Lower blast radius</span>
+        </div>
+      </main>
+      <footer><span>Rejected: one subscription for everything</span><span>4 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Resource Group Decision</div>
+          <h2>Why I Split Resource Groups By Ownership</h2>
+        </div>
+        <div class="tag">Operational grouping</div>
+      </header>
+      <main class="grid-3">
+        <div class="card">
+          <h3>What I chose</h3>
+          <p>Network, security, connectivity, DNS, management, monitoring, AKS, ingress, data, and Terraform state are separated into focused resource groups.</p>
+        </div>
+        <div class="card">
+          <h3>Why it helps</h3>
+          <p>RBAC, cost review, locks, diagrams, and Terraform plans become easier to understand and safer to operate.</p>
+        </div>
+        <div class="card">
+          <h3>What I avoided</h3>
+          <p>One giant resource group would be faster today but risky later. Too many resource groups would be noisy. I chose the middle path.</p>
+        </div>
+      </main>
+      <footer><span>Actual Azure placement still follows Azure platform constraints</span><span>5 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Azure Placement Exception</div>
+          <h2>Logical Ownership Is Not Always Physical Placement</h2>
+        </div>
+        <div class="tag">Important diagram note</div>
+      </header>
+      <main class="grid-2">
+        <div class="card">
+          <h3><code>fw-opslora-hub-cin-001</code></h3>
+          <p>Logically security, but physically in <code>rg-opslora-hub-network-cin</code> because Azure Firewall attaches to <code>AzureFirewallSubnet</code> in the hub VNet.</p>
+        </div>
+        <div class="card">
+          <h3><code>vpngw-opslora-hub-cin-001</code></h3>
+          <p>Logically connectivity, but physically in <code>rg-opslora-hub-network-cin</code> because VPN Gateway attaches to <code>GatewaySubnet</code>.</p>
+        </div>
+      </main>
+      <footer><span>Draw them in security/connectivity boxes, but label the actual Azure resource group</span><span>6 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Terraform Structure</div>
+          <h2>Why I Broke Terraform Into Roots, Files, And Modules</h2>
+        </div>
+        <div class="tag">IaC design</div>
+      </header>
+      <main class="split">
+        <div class="card">
+          <pre>environments/
+  platform or hub/
+  test/
+  prod/
+  prod-dr/
+
+modules/
+  hub-network/
+  hub-security/
+  aks/
+  application-gateway/
+  mysql-flexible/
+  key-vault/</pre>
+        </div>
+        <div class="card">
+          <h3>Decision logic</h3>
+          <ul>
+            <li>Environment roots define blast radius.</li>
+            <li>Modules encode repeatable Azure patterns.</li>
+            <li><code>main.tf</code> should wire modules, not hide all resource logic.</li>
+            <li>Files are split by concern: providers, variables, locals, outputs, backend.</li>
+          </ul>
+        </div>
+      </main>
+      <footer><span>Rejected: one giant Terraform file</span><span>7 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Workspace Decision</div>
+          <h2>Why I Did Not Use Terraform Workspaces</h2>
+        </div>
+        <div class="tag">State safety</div>
+      </header>
+      <main class="grid-2">
+        <div class="card">
+          <h3>Why not workspaces?</h3>
+          <ul>
+            <li>Hub, test, prod, and prod-dr do not have the same resource shape.</li>
+            <li>Workspace mistakes can plan/apply the wrong environment.</li>
+            <li>Condition-heavy code makes review harder.</li>
+            <li>Prod safety should not depend on remembering the active workspace.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Chosen state model</h3>
+          <pre>platform/terraform.tfstate
+test/terraform.tfstate
+prod/terraform.tfstate
+prod-dr/terraform.tfstate</pre>
+          <p class="muted">Workspaces can still be used later for temporary preview stacks with the same shape.</p>
+        </div>
+      </main>
+      <footer><span>Separate roots plus separate backend keys are clearer for real environments</span><span>8 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Terraform Mechanics</div>
+          <h2>Depends On, Taint, Lifecycle, And Provider Aliases</h2>
+        </div>
+        <div class="tag">Guardrails</div>
+      </header>
+      <main>
+        <div class="grid-4">
+          <div class="card compact">
+            <h3><code>depends_on</code></h3>
+            <p>Use sparingly for Azure ordering not visible through attributes, such as RBAC propagation or DNS link readiness.</p>
+          </div>
+          <div class="card compact">
+            <h3><code>taint</code></h3>
+            <p>Emergency break/fix only. Not a rollout pattern for AKS, MySQL, Firewall, or Application Gateway.</p>
+          </div>
+          <div class="card compact">
+            <h3><code>lifecycle</code></h3>
+            <p>Use <code>prevent_destroy</code> for critical state/data. Use <code>ignore_changes</code> only for controller-managed fields.</p>
+          </div>
+          <div class="card compact">
+            <h3>Aliases</h3>
+            <p>Use provider aliases for cross-subscription peering, DNS links, and hub-to-spoke operations.</p>
+          </div>
+        </div>
+      </main>
+      <footer><span>Terraform should make risk visible, not hide it</span><span>9 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Network Plan</div>
+          <h2>IP Ranges Were Chosen To Avoid Overlap</h2>
+        </div>
+        <div class="tag">CIDR allocation</div>
+      </header>
+      <main>
+        <table class="table">
+          <thead>
+            <tr><th>Scope</th><th>VNet / range</th><th>Region</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Hub</td><td><code>10.40.0.0/20</code></td><td>Central India</td><td>Firewall, VPN, Bastion, DNS resolver</td></tr>
+            <tr><td>Test</td><td><code>10.41.0.0/20</code></td><td>Central India</td><td>Test AKS, WAF, MySQL, Key Vault</td></tr>
+            <tr><td>Prod</td><td><code>10.42.0.0/20</code></td><td>Central India</td><td>Production platform</td></tr>
+            <tr><td>Prod DR</td><td><code>10.43.0.0/20</code></td><td>South India</td><td>Future recovery footprint</td></tr>
+            <tr><td>On-prem</td><td><code>172.16.10.0/24</code></td><td>Trivandrum</td><td>Hermes AI network candidate</td></tr>
+          </tbody>
+        </table>
+      </main>
+      <footer><span>Avoided 192.168.x for Azure and pods because home/broadband overlap is common</span><span>10 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">AKS Networking</div>
+          <h2>Azure CNI Overlay Keeps Node And Pod IPs Separate</h2>
+        </div>
+        <div class="tag">Kubernetes network model</div>
+      </header>
+      <main>
+        <div class="grid-3">
+          <div class="card">
+            <h3>Test AKS</h3>
+            <p><code>100.64.0.0/16</code> pods<br><code>10.241.0.0/16</code> services<br><code>10.241.0.10</code> DNS</p>
+          </div>
+          <div class="card">
+            <h3>Prod AKS</h3>
+            <p><code>100.65.0.0/16</code> pods<br><code>10.242.0.0/16</code> services<br><code>10.242.0.10</code> DNS</p>
+          </div>
+          <div class="card">
+            <h3>DR AKS</h3>
+            <p><code>100.66.0.0/16</code> pods<br><code>10.243.0.0/16</code> services<br><code>10.243.0.10</code> DNS</p>
+          </div>
+        </div>
+        <div class="pill-row">
+          <span class="pill">Nodes use VNet subnets</span>
+          <span class="pill">Pods use overlay CIDRs</span>
+          <span class="pill">Pod IPs do not consume VNet IPs</span>
+        </div>
+      </main>
+      <footer><span>Rejected: classic Azure CNI pod IPs from VNet for this phase</span><span>11 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Ingress Decision</div>
+          <h2>Application Gateway WAF Plus AGIC Is The Azure Entry</h2>
+        </div>
+        <div class="tag">Edge routing</div>
+      </header>
+      <main class="flow">
+        <div class="node"><b>Internet DNS</b><span>Hostinger delegates or records point to Azure edge.</span></div>
+        <div class="arrow">-></div>
+        <div class="node"><b>App Gateway WAF</b><span>Public edge, TLS, WAF policy, static public IP.</span></div>
+        <div class="arrow">-></div>
+        <div class="node"><b>AGIC + AKS</b><span>Kubernetes Ingress updates Application Gateway routes.</span></div>
+      </main>
+      <footer><span>Rejected for phase 1: kgateway as an extra gateway layer</span><span>12 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Data And Secrets</div>
+          <h2>Private MySQL And Key Vault Are Platform Defaults</h2>
+        </div>
+        <div class="tag">Security posture</div>
+      </header>
+      <main class="grid-2">
+        <div class="card">
+          <h3>MySQL Flexible Server</h3>
+          <ul>
+            <li>Use Azure Database for MySQL Flexible Server.</li>
+            <li>Use Advanced Create or Terraform, not Quick Create.</li>
+            <li>Use private VNet integration.</li>
+            <li>Use a delegated <code>snet-mysql-flexible</code> subnet.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Azure Key Vault</h3>
+          <ul>
+            <li>Real secrets stay in Key Vault.</li>
+            <li>No DB passwords, JWT keys, SMTP passwords, or tokens in Git.</li>
+            <li>AKS reads through CSI and workload identity path.</li>
+            <li>Prod disables public access after rollout.</li>
+          </ul>
+        </div>
+      </main>
+      <footer><span>Secrets in tfvars were rejected because they leak into files, logs, and state</span><span>13 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Public IP And DNS</div>
+          <h2>Static Edge IPs, No Public Microservices</h2>
+        </div>
+        <div class="tag">Exposure model</div>
+      </header>
+      <main>
+        <table class="table">
+          <thead>
+            <tr><th>Scope</th><th>Prefix</th><th>Count</th><th>Used for</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Hub</td><td><code>pip-prefix-opslora-hub-cin-28</code></td><td>16</td><td>Firewall, VPN, Bastion reserve</td></tr>
+            <tr><td>Test</td><td><code>pip-prefix-opslora-test-cin-29</code></td><td>8</td><td>Test Application Gateway reserve</td></tr>
+            <tr><td>Prod</td><td><code>pip-prefix-opslora-prod-cin-28</code></td><td>16</td><td>Prod Application Gateway reserve</td></tr>
+            <tr><td>DR</td><td><code>pip-prefix-opslora-prod-sin-29</code></td><td>8</td><td>Future DR ingress reserve</td></tr>
+          </tbody>
+        </table>
+        <div class="pill-row">
+          <span class="pill">Static IPs for edge</span>
+          <span class="pill">Private endpoints for data</span>
+          <span class="pill">No LoadBalancer per service</span>
+        </div>
+      </main>
+      <footer><span>DNS records target edge resources, not individual services</span><span>14 / 15</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="eyebrow">Final Operating Model</div>
+          <h2>The Rollout Path Is Deliberately Phased</h2>
+        </div>
+        <div class="tag">Next execution</div>
+      </header>
+      <main class="grid-2">
+        <div class="card">
+          <h3>Phase now</h3>
+          <ul>
+            <li>Hub foundation and test spoke first.</li>
+            <li>AKS with Azure-native monitoring, Key Vault, GHCR, and AGIC.</li>
+            <li>Validate app workflows end-to-end on <code>app-test.opslora.com</code>.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Phase next</h3>
+          <ul>
+            <li>Promote same pattern to prod after test is stable.</li>
+            <li>Add VPN connection once on-prem public IP, CIDR, and shared key are final.</li>
+            <li>Keep prod-dr as documented reserve, then warm standby when cost and maturity justify it.</li>
+          </ul>
+        </div>
+      </main>
+      <footer><span>Decision principle: use Azure built-ins where they reduce operational surface</span><span>15 / 15</span></footer>
+    </section>
+  </div>
+
+  <div class="nav" aria-label="Slide navigation">
+    <button type="button" id="prev">Prev</button>
+    <span id="counter">1 / 15</span>
+    <button type="button" id="next">Next</button>
+  </div>
+  <div class="progress"><div id="bar"></div></div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const counter = document.getElementById("counter");
+    const bar = document.getElementById("bar");
+    let index = 0;
+
+    function showSlide(nextIndex) {
+      index = Math.max(0, Math.min(slides.length - 1, nextIndex));
+      slides.forEach((slide, slideIndex) => {
+        slide.classList.toggle("active", slideIndex === index);
+      });
+      counter.textContent = `${index + 1} / ${slides.length}`;
+      bar.style.width = `${((index + 1) / slides.length) * 100}%`;
+      history.replaceState(null, "", `#${index + 1}`);
+    }
+
+    document.getElementById("prev").addEventListener("click", () => showSlide(index - 1));
+    document.getElementById("next").addEventListener("click", () => showSlide(index + 1));
+
+    document.addEventListener("keydown", (event) => {
+      if (["ArrowRight", "PageDown", " "].includes(event.key)) {
+        event.preventDefault();
+        showSlide(index + 1);
+      }
+      if (["ArrowLeft", "PageUp"].includes(event.key)) {
+        event.preventDefault();
+        showSlide(index - 1);
+      }
+      if (event.key === "Home") showSlide(0);
+      if (event.key === "End") showSlide(slides.length - 1);
+    });
+
+    const hashIndex = Number(window.location.hash.replace("#", "")) - 1;
+    showSlide(Number.isFinite(hashIndex) ? hashIndex : 0);
+  </script>
+</body>
+</html>
