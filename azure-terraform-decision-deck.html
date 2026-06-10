@@ -451,17 +451,40 @@
       grid-template-columns: 1fr;
       height: 100%;
       min-height: 0;
+      align-content: end;
     }
 
     .architecture img {
       width: 100%;
-      height: min(68vh, 720px);
+      height: min(62vh, 650px);
       object-fit: contain;
       background: rgba(241, 235, 218, 0.96);
       border-radius: 0;
       border: 1px solid rgba(217, 195, 138, 0.42);
       padding: 10px;
       box-shadow: var(--shadow);
+    }
+
+    .architecture-slide.active {
+      grid-template-rows: minmax(148px, auto) minmax(0, 1fr) auto;
+      gap: 18px;
+    }
+
+    .architecture-slide h2 {
+      max-width: 1180px;
+      font-size: clamp(34px, 4.4vw, 58px);
+      line-height: 0.98;
+    }
+
+    .structure-slide.active {
+      grid-template-rows: minmax(230px, auto) minmax(0, 1fr) auto;
+      gap: 18px;
+    }
+
+    .structure-slide h2 {
+      max-width: 1120px;
+      font-size: clamp(32px, 4.1vw, 54px);
+      line-height: 1.02;
     }
 
     .accent {
@@ -678,7 +701,7 @@
       <footer><span>Goal: secure, explainable, Azure-focused rollout</span><span>2 / 15</span></footer>
     </section>
 
-    <section class="slide">
+    <section class="slide architecture-slide">
       <header>
         <div>
           <div class="eyebrow">Architecture View</div>
@@ -767,7 +790,7 @@
       <footer><span>Draw them in security/connectivity boxes, but label the actual Azure resource group</span><span>6 / 15</span></footer>
     </section>
 
-    <section class="slide">
+    <section class="slide structure-slide">
       <header>
         <div>
           <div class="eyebrow">Terraform Structure</div>
